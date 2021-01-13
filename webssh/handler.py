@@ -12,11 +12,10 @@ from concurrent.futures import ThreadPoolExecutor
 from tornado.ioloop import IOLoop
 from tornado.options import options
 from tornado.process import cpu_count
-from webssh.utils import (
-    is_valid_ip_address, is_valid_port, is_valid_hostname, to_bytes, to_str,
-    to_int, to_ip_address, UnicodeType, is_ip_hostname, is_same_primary_domain,
-    is_valid_encoding
-)
+from webssh.utils import (is_valid_ip_address, is_valid_port,
+                          is_valid_hostname, to_bytes, to_str, to_int,
+                          to_ip_address, UnicodeType, is_ip_hostname,
+                          is_same_primary_domain, is_valid_encoding)
 from webssh.worker import Worker, recycle_worker, clients
 
 try:
@@ -29,7 +28,7 @@ try:
 except ImportError:
     from urlparse import urlparse
 
-
+DELAY = 3
 DEFAULT_PORT = 22
 
 swallow_http_errors = True
@@ -41,7 +40,6 @@ class InvalidValueError(Exception):
 
 
 class SSHClient(paramiko.SSHClient):
-
     def handler(self, title, instructions, prompt_list):
         answers = []
         for prompt_, _ in prompt_list:
@@ -70,8 +68,7 @@ class SSHClient(paramiko.SSHClient):
             logging.info('Trying publickey authentication')
             try:
                 allowed_types = set(
-                    self._transport.auth_publickey(username, pkey)
-                )
+                    self._transport.auth_publickey(username, pkey))
                 two_factor = allowed_types & two_factor_types
                 if not two_factor:
                     return
@@ -143,7 +140,7 @@ class PrivateKey(object):
         logging.debug('Reset offset to {}.'.format(offset))
 
         logging.debug('Try parsing it as {} type key'.format(name))
-        pkeycls = getattr(paramiko, name+'Key')
+        pkeycls = getattr(paramiko, name + 'Key')
         pkey = None
 
         try:
@@ -179,15 +176,13 @@ class PrivateKey(object):
         msg = 'Invalid key'
         if self.password:
             msg += ' or wrong passphrase "{}" for decrypting it.'.format(
-                    self.password)
+                self.password)
         raise InvalidValueError(msg)
 
 
 class MixinHandler(object):
 
-    custom_headers = {
-        'Server': 'TornadoServer'
-    }
+    custom_headers = {'Server': 'TornadoServer'}
 
     html = ('<html><head><title>{code} {reason}</title></head><body>{code} '
             '{reason}</body></html>')
@@ -204,12 +199,10 @@ class MixinHandler(object):
         if result:
             self.set_status(403)
             self.finish(
-                self.html.format(code=self._status_code, reason=self._reason)
-            )
+                self.html.format(code=self._status_code, reason=self._reason))
         elif result is False:
-            to_url = self.get_redirect_url(
-                self.request.host_name, options.sslport, self.request.uri
-            )
+            to_url = self.get_redirect_url(self.request.host_name,
+                                           options.sslport, self.request.uri)
             self.redirect(to_url, permanent=True)
         else:
             self.context = context
@@ -231,8 +224,9 @@ class MixinHandler(object):
         if self.origin_policy == 'same':
             return False
         elif self.origin_policy == 'primary':
-            return is_same_primary_domain(netloc.rsplit(':', 1)[0],
-                                          host.rsplit(':', 1)[0])
+            return is_same_primary_domain(
+                netloc.rsplit(':', 1)[0],
+                host.rsplit(':', 1)[0])
         else:
             return origin in self.origin_policy
 
@@ -243,8 +237,7 @@ class MixinHandler(object):
 
         if lst and ip not in lst:
             logging.warning(
-                'IP {!r} not found in trusted downstream {!r}'.format(ip, lst)
-            )
+                'IP {!r} not found in trusted downstream {!r}'.format(ip, lst))
             return True
 
         if context._orig_protocol == 'http':
@@ -304,7 +297,6 @@ class MixinHandler(object):
 
 
 class NotFoundHandler(MixinHandler, tornado.web.ErrorHandler):
-
     def initialize(self):
         super(NotFoundHandler, self).initialize()
 
@@ -314,7 +306,7 @@ class NotFoundHandler(MixinHandler, tornado.web.ErrorHandler):
 
 class IndexHandler(MixinHandler, tornado.web.RequestHandler):
 
-    executor = ThreadPoolExecutor(max_workers=cpu_count()*5)
+    executor = ThreadPoolExecutor(max_workers=cpu_count() * 5)
 
     def initialize(self, loop, policy, host_keys_settings):
         super(IndexHandler, self).initialize(loop)
@@ -383,9 +375,8 @@ class IndexHandler(MixinHandler, tornado.web.RequestHandler):
         if self.ssh_client._system_host_keys.lookup(key) is None:
             if self.ssh_client._host_keys.lookup(key) is None:
                 raise tornado.web.HTTPError(
-                        403, 'Connection to {}:{} is not allowed.'.format(
-                            hostname, port)
-                    )
+                    403, 'Connection to {}:{} is not allowed.'.format(
+                        hostname, port))
 
     def get_args(self):
         hostname = self.get_hostname()
@@ -421,8 +412,7 @@ class IndexHandler(MixinHandler, tornado.web.RequestHandler):
 
     def get_default_encoding(self, ssh):
         commands = [
-            '$SHELL -ilc "locale charmap"',
-            '$SHELL -ic "locale charmap"'
+            '$SHELL -ilc "locale charmap"', '$SHELL -ic "locale charmap"'
         ]
 
         for command in commands:
@@ -472,8 +462,7 @@ class IndexHandler(MixinHandler, tornado.web.RequestHandler):
         if origin:
             if not super(IndexHandler, self).check_origin(origin):
                 raise tornado.web.HTTPError(
-                    403, 'Cross origin operation is not allowed.'
-                )
+                    403, 'Cross origin operation is not allowed.')
 
             if not event_origin and self.origin_policy != 'same':
                 self.set_header('Access-Control-Allow-Origin', origin)
@@ -514,14 +503,14 @@ class IndexHandler(MixinHandler, tornado.web.RequestHandler):
                 clients[ip] = workers
             worker.src_addr = (ip, port)
             workers[worker.id] = worker
-            self.loop.call_later(options.delay, recycle_worker, worker)
+            self.loop.call_later(options.delay or DELAY, recycle_worker,
+                                 worker)
             self.result.update(id=worker.id, encoding=worker.encoding)
 
         self.write(self.result)
 
 
 class WsockHandler(MixinHandler, tornado.websocket.WebSocketHandler):
-
     def initialize(self, loop):
         super(WsockHandler, self).initialize(loop)
         self.worker_ref = None
@@ -551,27 +540,39 @@ class WsockHandler(MixinHandler, tornado.websocket.WebSocketHandler):
                 self.close(reason='Websocket authentication failed.')
 
     def on_message(self, message):
+        # print('{!r} from {}:{}'.format(message, *self.src_addr))
         logging.debug('{!r} from {}:{}'.format(message, *self.src_addr))
         worker = self.worker_ref()
-        try:
-            msg = json.loads(message)
-        except JSONDecodeError:
-            return
 
-        if not isinstance(msg, dict):
-            return
-
-        resize = msg.get('resize')
-        if resize and len(resize) == 2:
+        # 字节传输（rz、sz）
+        if isinstance(message, bytes):
+            worker.chan.send(message)
+        else:
             try:
-                worker.chan.resize_pty(*resize)
-            except (TypeError, struct.error, paramiko.SSHException):
-                pass
+                msg = json.loads(message)
+            except JSONDecodeError:
+                return
 
-        data = msg.get('data')
-        if data and isinstance(data, UnicodeType):
-            worker.data_to_dst.append(data)
-            worker.on_write()
+            if not isinstance(msg, dict):
+                return
+
+            ignore = msg.get('ignore')
+            if ignore:
+                logging.info('Ignore message:{} from {}:{}'.format(
+                    ignore, *self.src_addr))
+                return
+
+            resize = msg.get('resize')
+            if resize and len(resize) == 2:
+                try:
+                    worker.chan.resize_pty(*resize)
+                except (TypeError, struct.error, paramiko.SSHException):
+                    pass
+
+            data = msg.get('data')
+            if data and isinstance(data, UnicodeType):
+                worker.data_to_dst.append(data)
+                worker.on_write()
 
     def on_close(self):
         logging.info('Disconnected from {}:{}'.format(*self.src_addr))

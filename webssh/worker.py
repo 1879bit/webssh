@@ -5,9 +5,13 @@ from tornado.ioloop import IOLoop
 from tornado.iostream import _ERRNO_CONNRESET
 from tornado.util import errno_from_exception
 
-
 BUF_SIZE = 32 * 1024
 clients = {}  # {ip: {id: worker}}
+
+zmodemszstart = b'rz\r**\x18B00000000000000\r\x8a'
+zmodemend = b'**\x18B0800000000022d\r\x8a'
+zmodemrzstart = b'rz waiting to receive.**\x18B0100000023be50\r\x8a'
+zmodemcancel = b'\x18\x18\x18\x18\x18\x08\x08\x08\x08\x08'
 
 
 def clear_worker(worker, clients):
@@ -41,6 +45,8 @@ class Worker(object):
         self.handler = None
         self.mode = IOLoop.READ
         self.closed = False
+        self.zmodem = False
+        self.zmodemOO = False
 
     def __call__(self, fd, events):
         if events & IOLoop.READ:
@@ -64,7 +70,39 @@ class Worker(object):
     def on_read(self):
         logging.debug('worker {} on read'.format(self.id))
         try:
-            data = self.chan.recv(BUF_SIZE)
+            if self.zmodemOO:
+                self.zmodemOO = False
+                data = self.chan.recv(2)
+                if not len(data):
+                    return
+                if data == b'OO':
+                    self.handler.write_message(data, binary=True)
+                else:
+                    data += self.chan.recv(4096)
+            else:
+                data = self.chan.recv(4096)
+                if not len(data):
+                    return
+            # print(f"read----{data}------")
+            if self.zmodem:
+                if zmodemend in data:
+                    self.zmodem = False
+                    self.zmodemOO = True
+
+                if zmodemcancel in data:
+                    self.zmodem = False
+                    self.handler.write_message("\n")
+                self.handler.write_message(data, binary=True)
+            else:
+                if zmodemszstart in data or zmodemrzstart in data:
+                    self.zmodem = True
+                    self.handler.write_message(data, binary=True)
+                else:
+                    str_data = data.decode('utf-8', 'ignore')
+                    self.handler.write_message(str_data)
+
+        except tornado.websocket.WebSocketClosedError:
+            self.close(reason='websocket closed')
         except (OSError, IOError) as e:
             logging.error(e)
             if self.chan.closed or errno_from_exception(e) in _ERRNO_CONNRESET:
@@ -75,21 +113,18 @@ class Worker(object):
                 self.close(reason='chan closed')
                 return
 
-            logging.debug('{!r} to {}:{}'.format(data, *self.handler.src_addr))
-            try:
-                self.handler.write_message(data, binary=True)
-            except tornado.websocket.WebSocketClosedError:
-                self.close(reason='websocket closed')
-
     def on_write(self):
+
         logging.debug('worker {} on write'.format(self.id))
         if not self.data_to_dst:
             return
 
         data = ''.join(self.data_to_dst)
+        print('{!r} to {}:{}'.format(data, *self.dst_addr))
         logging.debug('{!r} to {}:{}'.format(data, *self.dst_addr))
 
         try:
+            # 往ssh发送数据
             sent = self.chan.send(data)
         except (OSError, IOError) as e:
             logging.error(e)
@@ -100,10 +135,13 @@ class Worker(object):
         else:
             self.data_to_dst = []
             data = data[sent:]
+
             if data:
                 self.data_to_dst.append(data)
+                print("write----up-write")
                 self.update_handler(IOLoop.WRITE)
             else:
+                print("write----up-read")
                 self.update_handler(IOLoop.READ)
 
     def close(self, reason=None):
@@ -111,9 +149,8 @@ class Worker(object):
             return
         self.closed = True
 
-        logging.info(
-            'Closing worker {} with reason: {}'.format(self.id, reason)
-        )
+        logging.info('Closing worker {} with reason: {}'.format(
+            self.id, reason))
         if self.handler:
             self.loop.remove_handler(self.fd)
             self.handler.close(reason=reason)
