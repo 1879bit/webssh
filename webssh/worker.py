@@ -120,7 +120,7 @@ class Worker(object):
             return
 
         data = ''.join(self.data_to_dst)
-        print('{!r} to {}:{}'.format(data, *self.dst_addr))
+        # print('{!r} to {}:{}'.format(data, *self.dst_addr))
         logging.debug('{!r} to {}:{}'.format(data, *self.dst_addr))
 
         try:
@@ -138,10 +138,10 @@ class Worker(object):
 
             if data:
                 self.data_to_dst.append(data)
-                print("write----up-write")
+                # print("write----up-write")
                 self.update_handler(IOLoop.WRITE)
             else:
-                print("write----up-read")
+                # print("write----up-read")
                 self.update_handler(IOLoop.READ)
 
     def close(self, reason=None):

@@ -355,6 +355,16 @@ jQuery(function ($) {
 
 
     ///////////////
+    toastr.options = {
+      closeButton: false,
+      progressBar: true,
+      positionClass: "toast-top-right",
+      timeOut: 50000,
+      extendedTimeOut: 30000,
+      showMethod: "slideDown",
+      hideMethod: "fadeOut"
+    };
+
     function utf8_to_b64(rawString) {
       return btoa(unescape(encodeURIComponent(rawString)));
     }
@@ -435,8 +445,8 @@ jQuery(function ($) {
               console.log(e);
             }
             return
-          } else if (files.length >= 25) {
-            toastr.warning("上传文件个数不能超过 25 个");
+          } else if (files.length > 3) {
+            toastr.warning("上传文件个数不能超过 3 个");
             try {
               // zsession 每 5s 发送一个 ZACK 包，5s 后会出现提示最后一个包是 ”ZACK“ 无法正常关闭
               // 这里直接设置 _last_header_name 为 ZRINIT，就可以强制关闭了
@@ -454,7 +464,7 @@ jQuery(function ($) {
                 // term.write("\r\n");
               } else {
                 term.write(obj.name + " was upload skipped\r\n");
-                // sock.send(JSON.stringify({ type: "ignore", data: utf8_to_b64("\r\n" + obj.name + " was upload skipped\r\n") }));
+                sock.send(JSON.stringify({ 'ignore': obj.name + " was upload skipped" }));
               }
             },
             on_progress(obj, xfer) {
@@ -463,7 +473,6 @@ jQuery(function ($) {
             on_file_complete(obj) {
               term.write("\r\n");
               sock.send(JSON.stringify({ 'ignore': obj.name + "(" + obj.size + ") was upload success" }));
-              // sock.send(JSON.stringify({ type: "ignore", data: utf8_to_b64(obj.name + "(" + obj.size + ") was upload success") }));
             },
           }
           ).then(zsession.close.bind(zsession), console.error.bind(console)
@@ -512,7 +521,7 @@ jQuery(function ($) {
             () => {
               saveFile(xfer, FILE_BUFFER);
               term.write("\r\n");
-              // sock.send(JSON.stringify({ type: "ignore", data: utf8_to_b64(xfer.get_details().name + "(" + xfer.get_details().size + ") was download success") }));
+              sock.send(JSON.stringify({ 'ignore': xfer.get_details().name + "(" + xfer.get_details().size + ") was download success" }));
             },
             console.error.bind(console)
           );
@@ -549,10 +558,8 @@ jQuery(function ($) {
         sock.send(new Uint8Array(octets))
       },
     });
+
     //////////////////end
-
-
-
 
     var ws_url = window.location.href.split(/\?|#/, 1)[0].replace('http', 'ws'),
       join = (ws_url[ws_url.length - 1] === '/' ? '' : '/'),
@@ -1016,7 +1023,7 @@ jQuery(function ($) {
 
   window.addEventListener("beforeunload", (event) => {
     event.returnValue = ''
-  })
+  });
 
 
   if (document.fonts) {
